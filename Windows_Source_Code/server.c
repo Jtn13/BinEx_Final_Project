@@ -6,9 +6,13 @@
  *   POST /echo   -> echoes the request body back as text/plain
  *
  * Build (MSVC, from a Developer Command Prompt):
- *   cl /nologo /W4 server.c /Fe:server.exe
+ *   cl /nologo /W4 /GS- server.c /Fe:server.exe /link /DYNAMICBASE:NO /NXCOMPAT:NO
  * Build (MinGW-w64):
- *   gcc -Wall -Wextra -std=c11 -o server.exe server.c -lws2_32
+ *   gcc -Wall -Wextra -std=c11 -fno-stack-protector -o server.exe server.c -lws2_32 -Wl,--disable-dynamicbase,--disable-nxcompat
+ *
+ * NOTE: handle_post_echo() is intentionally vulnerable to a stack buffer
+ * overflow (strcpy into a fixed-size buffer). The flags above turn off
+ * stack cookies (/GS-), ASLR, and DEP so the overflow is exploitable.
  *
  * Run:   server.exe [port]          (default 8080, Ctrl-C to stop)
  * Test:  curl.exe -v http://127.0.0.1:8080/
@@ -43,6 +47,8 @@
 #define _WIN32_WINNT 0x0601
 #endif
 #define WIN32_LEAN_AND_MEAN
+/* MSVC refuses strcpy() without this (warning C4996). */
+#define _CRT_SECURE_NO_WARNINGS
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -481,10 +487,15 @@ static http_err_t handle_get_index(SOCKET fd, const http_request_t *req)
     return ERR_NONE;
 }
 
+
 static http_err_t handle_post_echo(SOCKET fd, const http_request_t *req)
 {
+    char msg[64];
+
+    strcpy(msg, req->body);
+
     if (send_response(fd, 200, "OK", "text/plain",
-                      req->body, req->body_len) < 0)
+                      msg, strlen(msg)) < 0)
         return ERR_CLIENT_CLOSED;
     return ERR_NONE;
 }
