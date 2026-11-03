@@ -5,14 +5,24 @@
  *   GET  /       -> small HTML page with a form
  *   POST /echo   -> echoes the request body back as text/plain
  *
- * Build (MSVC, from a Developer Command Prompt):
- *   cl /nologo /W4 /GS- server.c /Fe:server.exe /link /DYNAMICBASE:NO /NXCOMPAT:NO
- * Build (MinGW-w64):
- *   gcc -Wall -Wextra -std=c11 -fno-stack-protector -o server.exe server.c -lws2_32 -Wl,--disable-dynamicbase,--disable-nxcompat
+ * Build (MSVC, from a 32-bit "x86 Native Tools" Developer Command Prompt):
+ *   cl /nologo /W4 /GS- server.c /Fe:server.exe /link /SAFESEH:NO /DYNAMICBASE:NO /NXCOMPAT:NO
+ * Build (MinGW-w64, 32-bit toolchain i686):
+ *   i686-w64-mingw32-gcc -Wall -Wextra -std=c11 -fno-stack-protector -o server.exe server.c -lws2_32 -Wl,--disable-dynamicbase,--disable-nxcompat
  *
  * NOTE: handle_post_echo() is intentionally vulnerable to a stack buffer
- * overflow (strcpy into a fixed-size buffer). The flags above turn off
- * stack cookies (/GS-), ASLR, and DEP so the overflow is exploitable.
+ * overflow (strcpy into a fixed-size buffer). It can be exploited two ways:
+ *   - saved return-address overwrite, and
+ *   - SEH (structured exception handler) overwrite.
+ *
+ * MITIGATIONS: build 32-bit (x86). SEH overwrite is an x86 technique -- on
+ * x64 Windows the exception handlers live in a .pdata table, not on the
+ * stack, so the overflow cannot reach them. The flags turn off stack
+ * cookies (/GS-), SafeSEH (/SAFESEH:NO, so a hijacked handler isn't
+ * validated), ASLR (/DYNAMICBASE:NO) and DEP (/NXCOMPAT:NO). SEHOP is an
+ * OS/process setting; disable it for the exercise if it is on. For the SEH
+ * path you also need a "pop pop ret" gadget in a module built WITHOUT
+ * SafeSEH (this .exe qualifies, since /SAFESEH:NO is set above).
  *
  * Run:   server.exe [port]          (default 8080, Ctrl-C to stop)
  * Test:  curl.exe -v http://127.0.0.1:8080/
@@ -488,15 +498,26 @@ static http_err_t handle_get_index(SOCKET fd, const http_request_t *req)
 }
 
 
+
 static http_err_t handle_post_echo(SOCKET fd, const http_request_t *req)
 {
     char msg[64];
 
-    strcpy(msg, req->body);
+    __try {
+        strcpy(msg, req->body);
 
-    if (send_response(fd, 200, "OK", "text/plain",
-                      msg, strlen(msg)) < 0)
-        return ERR_CLIENT_CLOSED;
+        if (msg[0] == '!') {
+            volatile char *crash = NULL;
+            *crash = 'x';             
+        }
+
+        if (send_response(fd, 200, "OK", "text/plain",
+                          msg, strlen(msg)) < 0)
+            return ERR_CLIENT_CLOSED;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        send_error(fd, ERR_INTERNAL);
+    }
     return ERR_NONE;
 }
 
