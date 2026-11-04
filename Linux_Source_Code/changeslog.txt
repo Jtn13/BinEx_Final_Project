@@ -1,0 +1,23 @@
+#Linux Server – Buffer Overflow Vulnerability
+
+1. **Vulnerable Location:** The vulnerability is located in the 'handle_post_vuln()' function in 'vuln_version.c'.
+
+2. **Vulnerable Code:**
+   '''c
+   char demo_buffer[64];
+   strcpy(demo_buffer, req->body);
+   '''
+
+3. Why It Is Vulnerable:
+   - 'demo_buffer' is a fixed-size stack buffer that holds 64 bytes.
+   - 'strcpy()' copies data without checking the destination's size.
+   - The request body is controlled by the client and can be up to 4,096 bytes.
+   - Inputs exceeding 63 characters overwrite memory beyond the buffer.
+
+4. **Network Access:** The vulnerability is accessible through the `POST /vuln` endpoint, which is registered in `route_request()`.
+
+5. **Testing:** A 100-character input was sent using `curl` to trigger the overflow.
+
+6. **Verification:** AddressSanitizer confirmed the vulnerability with a `stack-buffer-overflow` error originating from `strcpy()` in `handle_post_vuln()`.
+
+7. **Expected Result:** The vulnerability demonstrates an out-of-bounds write and stack memory corruption. It does not necessarily demonstrate control of the instruction pointer or arbitrary code execution.
