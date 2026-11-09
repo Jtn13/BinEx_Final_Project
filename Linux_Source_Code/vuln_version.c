@@ -489,7 +489,7 @@ static http_err_t handle_post_vuln(int fd, const http_request_t *req)
 {
     char demo_buffer[64];
 
-    /* Deliberately unsafe: req->body can be much larger than demo_buffer. */
+    /* buffer overflow location: req->body can be much larger than demo_buffer. */
     strcpy(demo_buffer, req->body);
 
     if (send_response(fd, 200, "OK", "text/plain",
